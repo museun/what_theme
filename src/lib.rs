@@ -67,6 +67,24 @@ impl VsCodeSettings {
         })
     }
 
+    pub fn settings_json_path() -> Result<PathBuf> {
+        Ok(directories::BaseDirs::new()
+            .ok_or_else(|| Error::CannotFindBaseDir)?
+            .config_dir()
+            .join("Code")
+            .join("User")
+            .join("settings.json"))
+    }
+
+    pub fn extension_user_cache_path() -> Result<PathBuf> {
+        Ok(directories::BaseDirs::new()
+            .ok_or_else(|| Error::CannotFindBaseDir)?
+            .config_dir()
+            .join("Code")
+            .join("CachedExtensions")
+            .join("user"))
+    }
+
     /// Filters the cache by a variant name
     pub fn find_theme<'a>(&'a self, current: &'a str) -> Option<FoundTheme<'a>> {
         for result in &self.result.result {
