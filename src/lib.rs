@@ -30,6 +30,24 @@ impl<'a> std::fmt::Display for FoundTheme<'a> {
     }
 }
 
+const WORKBENCH_COLOR_THEME: Lazy<regex::Regex> = Lazy::new(|| {
+    regex::Regex::new(r#"(?m)^\s*"workbench\.colorTheme"\s*:\s*"(?P<name>.*?)",?\s*?$"#).unwrap()
+});
+
+/// Reads your current (global) `settings.json` and gets the current active theme
+pub fn get_current_theme() -> Result<String> {
+    let data = VsCodeSettings::read_data(|f| f.join("User").join("settings.json"))?;
+    get_current_theme_from(&data)
+}
+
+/// Get the current active theme from a `&str`
+pub fn get_current_theme_from(data: &str) -> Result<String> {
+    WORKBENCH_COLOR_THEME
+        .captures(data)
+        .ok_or_else(|| Error::CannotFindCurrentTheme)
+        .map(|cap| cap["name"].to_string())
+}
+
 /// This reads the vscode extension cache and allows you to find/search for installed themes
 pub struct VsCodeSettings {
     result: vscode_data::Results,
@@ -39,23 +57,14 @@ impl VsCodeSettings {
     /// Create a new instance of the `VscodeSettings`
     pub fn new() -> Result<Self> {
         let json = Self::read_data(|f| f.join("CachedExtensions").join("user"))?;
-        Ok(Self {
-            result: serde_json::from_str(&json)?,
-        })
+        Self::new_from(&json)
     }
 
-    /// Reads your current (global) `settings.json` and gets the current active theme
-    pub fn get_current_theme() -> Result<String> {
-        const WORKBENCH_COLOR_THEME: Lazy<regex::Regex> = Lazy::new(|| {
-            regex::Regex::new(r#"(?m)^\s*"workbench\.colorTheme"\s*:\s*"(?P<name>.*?)",?\s*?$"#)
-                .unwrap()
-        });
-
-        let data = Self::read_data(|f| f.join("User").join("settings.json"))?;
-        WORKBENCH_COLOR_THEME
-            .captures(&data)
-            .ok_or_else(|| Error::CannotFindCurrentTheme)
-            .map(|cap| cap["name"].to_string())
+    /// Create a new instance of the `VscodeSettings` from str
+    pub fn new_from(data: &str) -> Result<Self> {
+        Ok(Self {
+            result: serde_json::from_str(data)?,
+        })
     }
 
     /// Filters the cache by a variant name
