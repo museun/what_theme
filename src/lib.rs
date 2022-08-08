@@ -2,6 +2,23 @@ use std::path::PathBuf;
 
 use once_cell::sync::Lazy;
 
+/// Found fonts from the configration
+#[derive(Debug, PartialEq, Hash)]
+pub struct FoundFonts {
+    editor: String,
+    terminal: String,
+}
+
+impl FoundFonts {
+    pub fn editor(&self) -> &str {
+        self.editor.as_ref()
+    }
+
+    pub fn terminal(&self) -> &str {
+        self.terminal.as_ref()
+    }
+}
+
 /// A found theme (extension) from the vscode extension cache
 #[derive(Debug, PartialEq, Hash)]
 pub struct FoundTheme<'a> {
@@ -34,6 +51,15 @@ const WORKBENCH_COLOR_THEME: Lazy<regex::Regex> = Lazy::new(|| {
     regex::Regex::new(r#"(?m)^\s*"workbench\.colorTheme"\s*:\s*"(?P<name>.*?)",?\s*?$"#).unwrap()
 });
 
+const WORKBENCH_EDITOR_FONT: Lazy<regex::Regex> = Lazy::new(|| {
+    regex::Regex::new(r#"(?m)^\s*"editor\.fontFamily"\s*:\s*"(?P<name>.*?)",?\s*?$"#).unwrap()
+});
+
+const WORKBENCH_TERMINAL_FONT: Lazy<regex::Regex> = Lazy::new(|| {
+    regex::Regex::new(r#"(?m)^\s*"terminal\.integrated\.fontFamily"\s*:\s*"(?P<name>.*?)",?\s*?$"#)
+        .unwrap()
+});
+
 /// Reads your current (global) `settings.json` and gets the current active theme
 pub fn get_current_theme() -> Result<String> {
     let data = VsCodeSettings::read_data(|f| f.join("User").join("settings.json"))?;
@@ -46,6 +72,34 @@ pub fn get_current_theme_from(data: &str) -> Result<String> {
         .captures(data)
         .ok_or_else(|| Error::CannotFindCurrentTheme)
         .map(|cap| cap["name"].to_string())
+}
+
+pub fn get_current_fonts() -> Result<FoundFonts> {
+    let data = VsCodeSettings::read_data(|f| f.join("User").join("settings.json"))?;
+    get_current_fonts_from(&data)
+}
+
+pub fn get_current_fonts_from(data: &str) -> Result<FoundFonts> {
+    let editor = WORKBENCH_EDITOR_FONT
+        .captures(data)
+        .ok_or_else(|| Error::CannoFindEditorFont)
+        .map(|cap| cap["name"].to_string())?;
+
+    let terminal = WORKBENCH_TERMINAL_FONT
+        .captures(data)
+        .ok_or_else(|| Error::CannoFindTerminalFont)
+        .map(|cap| cap["name"].to_string())?;
+
+    Ok(FoundFonts { editor, terminal })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn asdf() {
+        dbg!(get_current_fonts().unwrap());
+    }
 }
 
 /// This reads the vscode extension cache and allows you to find/search for installed themes
@@ -128,6 +182,14 @@ pub enum Error {
     /// Cannot parse/find the current theme
     #[error("cannot find current theme")]
     CannotFindCurrentTheme,
+
+    /// Cannot parse/find the current editor font
+    #[error("cannot find current editor font")]
+    CannoFindEditorFont,
+
+    /// Cannot parse/find the current terminal font
+    #[error("cannot find current terminal font")]
+    CannoFindTerminalFont,
 
     /// A serialization problem
     #[error("cannot deserialize user cache file")]
