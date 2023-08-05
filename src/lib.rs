@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 
 use once_cell::sync::Lazy;
-use regex::Regex;
+use regex_lite::Regex;
 
 /// Found fonts from the configration
-#[derive(Debug, PartialEq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FoundFonts {
     editor: String,
     terminal: String,
@@ -21,7 +21,7 @@ impl FoundFonts {
 }
 
 /// A found theme (extension) from the vscode extension cache
-#[derive(Debug, PartialEq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FoundTheme<'a> {
     id: &'a str,
     variant: &'a str,
@@ -48,7 +48,7 @@ impl<'a> FoundTheme<'a> {
 
 fn make_json_regex(key: &str) -> Regex {
     let s = key.replace('.', r#"\."#);
-    regex::Regex::new(&format!(r#"(?m)^\s*"{}"\s*:\s*"(?P<name>.*?)",?\s*?$"#, s)).unwrap()
+    regex_lite::Regex::new(&format!(r#"(?m)^\s*"{}"\s*:\s*"(?P<name>.*?)",?\s*?$"#, s)).unwrap()
 }
 
 fn read<F, E>(f: F) -> Result<String>
@@ -59,13 +59,13 @@ where
     Ok(std::fs::read_to_string(f().map_err(Into::into)?)?)
 }
 
-static WORKBENCH_COLOR_THEME: Lazy<regex::Regex> =
+static WORKBENCH_COLOR_THEME: Lazy<regex_lite::Regex> =
     Lazy::new(|| make_json_regex("workbench.colorTheme"));
 
-static WORKBENCH_EDITOR_FONT: Lazy<regex::Regex> =
+static WORKBENCH_EDITOR_FONT: Lazy<regex_lite::Regex> =
     Lazy::new(|| make_json_regex("editor.fontFamily"));
 
-static WORKBENCH_TERMINAL_FONT: Lazy<regex::Regex> =
+static WORKBENCH_TERMINAL_FONT: Lazy<regex_lite::Regex> =
     Lazy::new(|| make_json_regex("terminal.integrated.fontFamily"));
 
 pub fn settings_json_path() -> Result<PathBuf> {
@@ -93,7 +93,7 @@ pub fn get_current_theme() -> Result<String> {
 
 /// Get the current active theme from a `&str`
 pub fn get_current_theme_from(data: &str) -> Result<String> {
-    Ok(extract(&WORKBENCH_COLOR_THEME, data).ok_or(Error::CannotFindCurrentTheme)?)
+    extract(&WORKBENCH_COLOR_THEME, data).ok_or(Error::CannotFindCurrentTheme)
 }
 
 /// Reads your current (global) `settings.json` and gets the current fonts
@@ -136,7 +136,7 @@ impl VsCodeSettings {
                 continue;
             }
             return Some(FoundTheme {
-                id: &*result.identifier.id,
+                id: &result.identifier.id,
                 variant: current,
             });
         }
@@ -176,22 +176,22 @@ pub enum Error {
 
 mod vscode_data {
     #[derive(::serde::Deserialize)]
-    pub(crate) struct Results {
-        pub(crate) result: Vec<Result>,
+    pub struct Results {
+        pub result: Vec<Result>,
     }
 
     #[derive(::serde::Deserialize)]
-    pub(crate) struct Result {
-        pub(crate) identifier: Identifier,
-        pub(crate) manifest: Manifest,
+    pub struct Result {
+        pub identifier: Identifier,
+        pub manifest: Manifest,
     }
 
     impl Result {
-        pub(crate) fn is_a_theme(&self) -> bool {
+        pub fn is_a_theme(&self) -> bool {
             self.manifest.categories.iter().any(|c| c == "Themes")
         }
 
-        pub(crate) fn contains_theme(&self, theme: &str) -> bool {
+        pub fn contains_theme(&self, theme: &str) -> bool {
             self.manifest
                 .contributes
                 .themes
@@ -202,25 +202,25 @@ mod vscode_data {
 
     #[derive(::serde::Deserialize, Default)]
     #[serde(default)]
-    pub(crate) struct Identifier {
-        pub(crate) id: String,
+    pub struct Identifier {
+        pub id: String,
     }
 
     #[derive(::serde::Deserialize, Default)]
     #[serde(default)]
-    pub(crate) struct Manifest {
+    pub struct Manifest {
         categories: Vec<String>,
         contributes: Contributes,
     }
 
     #[derive(::serde::Deserialize, Default)]
-    pub(crate) struct Contributes {
+    pub struct Contributes {
         #[serde(default)]
         themes: Vec<Theme>,
     }
 
     #[derive(::serde::Deserialize)]
-    pub(crate) struct Theme {
+    pub struct Theme {
         label: String,
     }
 }

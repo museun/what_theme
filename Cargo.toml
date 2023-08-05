@@ -1,14 +1,14 @@
 [package]
-name        = "what_theme"
-version     = "0.1.0"
-edition     = "2021"
+name = "what_theme"
+version = "0.1.0"
+edition = "2021"
 description = "looks up the current VsCode theme"
-license     = "0BSD"
+license = "0BSD"
 
 [dependencies]
-directories = "4.0.1"
-once_cell   = "1.13.0"
-regex       = "1.6.0"
-serde       = { version = "1.0.141", features = ["derive"] }
-serde_json  = "1.0.82"
-thiserror   = "1.0.31"
+directories = "5.0.1"
+once_cell = "1.18.0"
+regex-lite = "0.1.0"
+serde = { version = "1.0.181", features = ["derive"] }
+serde_json = "1.0.104"
+thiserror = "1.0.44"
