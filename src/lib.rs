@@ -42,10 +42,6 @@ impl<'a> FoundTheme<'a> {
     }
 }
 
-// r#"(?m)^\s*"workbench\.colorTheme"\s*:\s*"(?P<name>.*?)",?\s*?$"#
-// r#"(?m)^\s*"editor\.fontFamily"\s*:\s*"(?P<name>.*?)",?\s*?$"#
-// r#"(?m)^\s*"terminal\.integrated\.fontFamily"\s*:\s*"(?P<name>.*?)",?\s*?$"#
-
 fn make_json_regex(key: &str) -> Regex {
     let s = key.replace('.', r#"\."#);
     regex_lite::Regex::new(&format!(r#"(?m)^\s*"{}"\s*:\s*"(?P<name>.*?)",?\s*?$"#, s)).unwrap()
@@ -78,12 +74,12 @@ pub fn settings_json_path() -> Result<PathBuf> {
 }
 
 pub fn extension_user_cache_path() -> Result<PathBuf> {
-    Ok(directories::BaseDirs::new()
+    Ok(directories::UserDirs::new()
         .ok_or(Error::CannotFindBaseDir)?
-        .config_dir()
-        .join("Code")
-        .join("CachedExtensions")
-        .join("user"))
+        .home_dir()
+        .join(".vscode")
+        .join("extensions")
+        .join("extensions.json"))
 }
 
 /// Reads your current (global) `settings.json` and gets the current active theme
@@ -114,7 +110,7 @@ fn extract(re: &Regex, data: &str) -> Option<String> {
 
 /// This reads the vscode extension cache and allows you to find/search for installed themes
 pub struct VsCodeSettings {
-    result: vscode_data::Results,
+    list: Vec<LabeledTheme>,
 }
 
 impl VsCodeSettings {
@@ -125,22 +121,63 @@ impl VsCodeSettings {
 
     /// Create a new instance of the `VscodeSettings` from str
     pub fn new_from(data: &str) -> Result<Self> {
-        let result = serde_json::from_str(data)?;
-        Ok(Self { result })
+        let list = Self::collate_themes(serde_json::from_str(data)?);
+        Ok(Self { list })
     }
 
     /// Filters the cache by a variant name
     pub fn find_theme<'a>(&'a self, current: &'a str) -> Option<FoundTheme<'a>> {
-        for result in &self.result.result {
-            if !result.is_a_theme() || !result.contains_theme(current) {
-                continue;
+        self.list.iter().find_map(|c| {
+            if &*c.label == current {
+                Some(FoundTheme {
+                    id: &c.id,
+                    variant: &c.label,
+                })
+            } else {
+                None
             }
-            return Some(FoundTheme {
-                id: &result.identifier.id,
-                variant: current,
-            });
+        })
+    }
+
+    fn collate_themes(list: Vec<vscode_data::Result>) -> Vec<LabeledTheme> {
+        fn undo_the_node_path_thing(s: &str) -> &str {
+            if cfg!(target_os = "windows") {
+                return s.strip_prefix('/').unwrap_or(s);
+            }
+            s
         }
-        None
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::scope(|scope| {
+            for result in list {
+                scope.spawn({
+                    let tx = tx.clone();
+                    move || {
+                        let path = undo_the_node_path_thing(&result.location.path);
+                        let path = match PathBuf::from(path).join("package.json").canonicalize() {
+                            Ok(path) => path,
+                            Err(_err) => return,
+                        };
+
+                        if let Ok(data) = std::fs::read_to_string(&path) {
+                            if let Ok(manifest) =
+                                serde_json::from_str::<vscode_data::Manifest>(&data)
+                            {
+                                for theme in manifest.contributes.themes {
+                                    let _ = tx.send(LabeledTheme {
+                                        label: theme.label,
+                                        id: result.identifier.id.clone(),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        });
+        drop(tx);
+
+        rx.into_iter().collect()
     }
 }
 
@@ -174,53 +211,59 @@ pub enum Error {
     Json(#[from] serde_json::Error),
 }
 
-mod vscode_data {
-    #[derive(::serde::Deserialize)]
-    pub struct Results {
-        pub result: Vec<Result>,
-    }
+#[derive(Debug)]
+pub struct LabeledTheme {
+    pub label: String,
+    pub id: String,
+}
 
-    #[derive(::serde::Deserialize)]
+mod vscode_data {
+    #[derive(::serde::Deserialize, Debug)]
     pub struct Result {
         pub identifier: Identifier,
-        pub manifest: Manifest,
+        pub location: Location,
     }
 
-    impl Result {
-        pub fn is_a_theme(&self) -> bool {
-            self.manifest.categories.iter().any(|c| c == "Themes")
-        }
-
-        pub fn contains_theme(&self, theme: &str) -> bool {
-            self.manifest
-                .contributes
-                .themes
-                .iter()
-                .any(|c| c.label == theme)
-        }
+    #[derive(::serde::Deserialize, Debug)]
+    pub struct Location {
+        pub path: String,
     }
 
-    #[derive(::serde::Deserialize, Default)]
+    #[derive(::serde::Deserialize, Default, Debug, Clone)]
     #[serde(default)]
     pub struct Identifier {
         pub id: String,
     }
 
-    #[derive(::serde::Deserialize, Default)]
+    #[derive(::serde::Deserialize, Default, Debug)]
     #[serde(default)]
     pub struct Manifest {
-        categories: Vec<String>,
-        contributes: Contributes,
+        pub categories: Vec<String>,
+        pub contributes: Contributes,
     }
 
-    #[derive(::serde::Deserialize, Default)]
+    #[derive(::serde::Deserialize, Default, Debug)]
     pub struct Contributes {
         #[serde(default)]
-        themes: Vec<Theme>,
+        pub themes: Vec<Theme>,
     }
 
-    #[derive(::serde::Deserialize)]
+    #[derive(::serde::Deserialize, Debug)]
     pub struct Theme {
-        label: String,
+        pub label: String,
     }
 }
+
+// impl Result {
+//     // pub fn is_a_theme(&self) -> bool {
+//     //     self.manifest.categories.iter().any(|c| c == "Themes")
+//     // }
+
+//     // pub fn contains_theme(&self, theme: &str) -> bool {
+//     //     self.manifest
+//     //         .contributes
+//     //         .themes
+//     //         .iter()
+//     //         .any(|c| c.label == theme)
+//     // }
+// }
